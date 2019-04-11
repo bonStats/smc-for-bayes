@@ -1,0 +1,29 @@
+---
+title: "Sequential Monte Carlo for static Bayesian modelling"
+author: "Joshua J Bon"
+date: "`r Sys.Date()`"
+output: tint::tintPdf
+bibliography: skeleton.bib
+link-citations: yes
+---
+
+```{r setup, include=FALSE}
+library(tint)
+# invalidate cache when the package version changes
+knitr::opts_chunk$set(tidy = FALSE, cache.extra = packageVersion('tint'))
+options(htmltools.dir.version = FALSE)
+```
+
+# Knock before entering (prerequisites)
+
+Assumed knowledge consists of
+
+1. Some experience with Bayesian modelling and inference.
+2. Some understanding of Markov chain Monte Carlo algorithms.
+3. Tolerance of vague, possibly misleading subheadings.
+
+# Bayes for days (some motivation)
+
+
+
+
