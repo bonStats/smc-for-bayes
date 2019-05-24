@@ -137,3 +137,44 @@ Whilst we have described mutation as the last step, this does not diminish its i
 Several enhancements are used in modern SMC algorithms to dramatically increase their efficiency, and are outlined in the subsections below. These improvements result from dynamic SMC algorithms which adapt using the current population of particles. Whilst they can improve efficiency, adaptive SMC algorithms are not covered by the theoretical convergence guarantees developed for their non-adaptive counterparts. The theory for some special cases of adaptivity has been developed by @del2012adaptive and @beskos2016convergence. When this theory is not available the issue can be circumvented using a pilot run of the entire SMC algorithm. The adapted parameters from the pilot run are fixed for a second, non-adaptive version of SMC, which will be covered by the general convergence results for SMC in static models [see for example, @del2006sequential].
 
 
+## Adapting the annealing schedule
+
+Basic SMC samplers use a fixed schedule of temperatures, $\phi_{1}, \phi_{2}, \ldots, \phi_{T}$, chosen prior to starting the algorithm. The increments in temperature are required to be close enough so that particles from $\pi_{t}$ form a good importance sample for $\pi_{t+1}$, but distant enough so avoid excessive run time. If the temperatures are too distant, the particles can be degenerate, that is, only a small proportion of the particles account for most of the weight in the importance sample. If this occurs estimates from the SMC sampler can be unstable (high variance).
+
+A metric for monitoring particle degeneracy is the effective sample size (ESS), which measures the effective number of independent samples^[Recall the particle weights measure duplication, hence $I$ particles with different weights do not necessarily represent an independent sample of size $I$.]. ESS is often approximated using the current weights by 
+$$
+\widehat{\text{ESS}}_{t} = \left(\sum_{i=1}^{I} (w^{(i)}_{t})^{2}\right)^{-1},
+$$
+noting that when $w^{(i)}_{t} = 1/I$ for all $i\in\{1,2,\ldots,I\}$ then $\widehat{\text{ESS}}_{t} = I$, as expected.
+
+Since reweighting is performed to prevent degeneracy, SMC algorithms can monitor the approximate ESS at each iteration and resample only when the ESS falls below a pre-specified threshold. This threshold is often chosen to be $I/2$. 
+
+## MCMC Kernel tuning
+
+When using an MCMC kernel, the set of particles available prior to refreshment can be used to tune the kernel. Tuning the kernel in a principled manner allows the particles to traverse the parameter space more efficiently, so that particle diversification increases at a low computational cost. 
+
+A popular MCMC move for SMC is the multivariate normal random (MVN) walk Metropolis-Hastings (MH) kernel. MVN-MH kernels operates by proposing a random move for each particle, where the move is simulated from a multivariate normal distribution. The proposed new position of each particle is evaluated using MH ratio, and accepted with this probability. If the move is accepted it becomes the new position, otherwise, the previous position prevails. Using the MH ratio to determine the acceptance or rejection of the proposed move is crucial as it preserves the invariant distribution [@kroese2011handbook, Ch. 6.1].
+
+It is often the case with SMC samplers, that MVN-MH kernel are tuned by calculating the empirical covariance matrix of the current particles, so that the MCMC step (approximately) respects the correlation between different elements of the distribution. That is, the estimated covariance used in the MVN random walk is
+$$
+\hat{Q}_{t} = (I-1)^{-1}\sum_{i=1}^{I} \left(\b\theta^{(i)}_{t} - \bar{\b\theta}_{t} \right)^{\top}\left(\b\theta^{(i)}_{t} - \bar{\b\theta}_{t} \right)
+$$
+or a scaled version of this. 
+
+More generally, tuning generic transition kernels can be performed by monitoring desirable metrics such as the expected square jump distance (ESJD). This has been used in MCMC [@craiu2009learn; @sherlock2009optimal; @pasarica2010adaptively] and SMC [@fearnhead2013adaptive; @salomone2018unbiased] with success. Whilst details of the implementation vary, maximising ESJD promotes better exploration of the parameter space and results in a more efficient sampler. In SMC, typically a pilot run of different tuning parameters is used and the "best"^[For example, @salomone2018unbiased use the kernel parameter corresponding to the highest median estimated ESJD.] parameters are adopted for the remaining mutation steps for the current time.
+
+## Number of MCMC steps
+
+The refreshment step can fail to effectively diversify the current set of particles if too large a proportion of the MCMC proposals result in a rejection. Whilst running multiple MCMC steps can resolve this, determining the number of iterations required is not trivial. A general solution to this issue is to run a single MCMC step, then use a criteria in order to decide how many more iterations are required.
+
+The most established criteria aims to ensure that the overall expected acceptance probability for $k$ iterations is above a certain threshold [@drovandi2011likelihood;@south2018seq]. The probability that at least one MCMC step is accepted in a sequence of $k$ iterations of an MCMC kernel is
+$$
+\alpha_{k} = 1 - (1-\alpha_{1})^{k}
+$$
+for $k \in \{1,2,\ldots\}$, where $\alpha_{1}$ is the probability of accepting a single MCMC step. A pilot MCMC step can be used to estimate the average acceptance rate across the particles in a single step, $\widehat{\alpha_{1}}$. We can then find $k$ such that $\alpha_{k+1} \geq p$ some threshold $0 < p < 1$. The term $k+1$ is used as we have already run the pilot MCMC step once. The formula for $k$ is then
+$$
+k \geq \frac{\log(1 - p)}{\log(1-\widehat{\alpha_{1}})} - 1
+$$
+where $\widehat{\alpha_{1}}$ is the estimated acceptance rate from one run. The number of mutation steps, $k$, can be selected as the smallest positive integer that satisfies the above equation.
+
+A possibly improved criteria that has recently been proposed involves ensuring the expected jump distance (EJD) is greater than a pre-specified level [@salomone2018unbiased]. The MCMC kernel is run for multiple steps until a proportion of particles, $\rho$,  has exceeded a threshold for the total EJD, $J$. Both $\rho$ and $J$ are prespecified. The benefit in comparison to the expected acceptance rate method is its robustness to poor quality MCMC moves. For example, a kernel that proposes very short jumps will have a high acceptance rate, at the cost of efficient exploration of the target distribution. The expected acceptance method will not be able to mitigate this issue, whilst the EJD would be expected to do much better. 
