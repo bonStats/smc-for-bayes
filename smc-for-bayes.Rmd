@@ -1,10 +1,14 @@
 ---
-title: "Sequential Monte Carlo for static Bayesian modelling"
+title: "SMC for Bayes"
 author: "Joshua J Bon"
 date: "`r Sys.Date()`"
 output: tint::tintPdf
-bibliography: skeleton.bib
+bibliography: smc.bib
 link-citations: yes
+header-includes:
+  - \usepackage{amsmath} 
+  - \let\b\boldsymbol
+  - \newcommand{\dd}{\text{ d}}
 ---
 
 ```{r setup, include=FALSE}
@@ -14,7 +18,9 @@ knitr::opts_chunk$set(tidy = FALSE, cache.extra = packageVersion('tint'))
 options(htmltools.dir.version = FALSE)
 ```
 
-# Knock before entering (prerequisites)
+or "Sequential Monte Carlo for static Bayesian model"
+
+# Prerequisites
 
 Assumed knowledge consists of
 
@@ -22,8 +28,112 @@ Assumed knowledge consists of
 2. Some understanding of Markov chain Monte Carlo algorithms.
 3. Tolerance of vague, possibly misleading subheadings.
 
-# Bayes for days (some motivation)
+# Do it for Bayes (some motivation)
 
+Monte Carlo methods (MC) are a suite of probabilistic computational techniques that simulate random variables from probability distributions that have density or mass functions that are difficult to study analytically. For example, such probability laws can have forms that are computationally expensive, or analytically intractable. Analytic intractability primarily manifests as an inability to estimate a multivariate integral, the normalising constants of the target probability distribution.  Monte Carlo methods bypass evaluation of this integral by generating draws from the target distribution, from which quantities such as moments or interval probabilities can be approximated. Monte Carlo methods are used in many contexts including in Bayesian statistics to estimate parameter posterior distributions^[A parameter's posterior distribution is the probability the parameter takes certain values after accounting for prior beliefs and available evidence (or data).], thereby quantifying uncertainty and enabling inference about the real world. 
 
+The justification for Monte Carlo integration appeal to a law of large numbers for integrable functions. The integral, or expectation of $f$, assuming it is integrable,
+
+\begin{equation}
+\text{E}_{\pi}[f(\b\theta)] =
+\int_{\Theta} f(\b\theta) \pi(\b\theta) \dd \b\theta = 
+\lim_{n\rightarrow \infty}~ n^{-1}\sum_{i=1}^{n} f\left(\b\theta^{(i)}\right) \label{eq:mc-integral}
+\end{equation}
+
+if the random draws $\b\theta^{(i)}$ have distribution $\pi(\b\theta)$. The approximation from the limit is therefore 
+$$
+\text{E}_{\pi}[f(\b\theta)] \approx n^{-1}\sum_{i=1}^{n} f\left(\b\theta^{(i)}\right) \quad \text{when} \quad  \b\theta^{(i)} \sim \pi(\b\theta)
+$$
+for large enough $n$. Modern MC methods focus on simulating from $\pi(\b\theta)$ efficiently, and use the above approximation for inference.
+
+Sequential Monte Carlo (SMC) is an attractive and robust MC method that is commonly used in Bayesian inference. It can be preferred to competing methods, such as Markov chain Monte Carlo (MCMC), as it is adaptive, parallelisable, and better equipped to handle multimodality and non-linear dependence in target distributions. SMC, unlike MCMC, can also be easily applied to modelling data that arrives in real-time, often referred to as sequential Bayesian analysis, as opposed to static analysis. 
+
+This research will focus on improving the efficiency, robustness, and applicability of sequential Monte Carlo methods, primarily for static Bayesian inference.
+
+# Old school (historical notes)
+Contemporary SMC has its origins in importance sampling and particle filtering, which are often motivated by Bayesian statistics and signal processing, respectively. The term 'Sequential Monte Carlo', appears at least as early as @liu1998sequential where importance sampling, resampling, and Markov chain methods were combined to estimate dynamic systems^[State-space models for example.] in real-time. This work drew heavily from particle filters such as the Bootstrap [@gordon1993novel] and Kalman filters [see @chen2003bayesian, for example], as well as sequential importance sampling from the time. 
+
+Whilst the key ingredients of SMC have remained much the same since @liu1998sequential, numerous theoretical and algorithmic advances have been made. The work of @del2006sequential contains the canonical exposition of modern SMC, describing very general methods with accompanying theory to guide the construction of effective SMC algorithms. The scope of their work was for models with a fixed number of parameters, which is the case for static Bayesian inference.
+
+In general, an SMC algorithm operates by iteratively updating a population of particles (realisations of random variables) to match a sequence of desired distributions. The final distribution in the sequence is the target, which is difficult to sample from directly. The algorithm incrementally progresses particles from one distribution to the next by iteratively reweighting and resampling, followed by refreshing the particles to add diversity. The first two steps are equivalent to importance sampling [@kroese2011handbook, Ch. 9.7], whilst the third often uses an MCMC kernel to diversify replicated particles in the sample, thereby avoiding degeneracy. We will now describe these steps in more detail.
+
+# New wave (modern SMC)
+SMC uses a series of densities, $\pi_{1},\pi_{2},\ldots,\pi_{T}$, to iteratively generate a realised set of random variables (or particles) whose distribution approaches a desired law, say the density $\pi(\b\theta) = \pi_{T}(\b\theta)$ for random variable $\b\theta \in \Theta$. The sequence, indexed by $t = 1,2,\ldots,T$, has corresponding particles and weights described by
+$$
+\left\{ \b{\theta}^{(i)}_{t}, w^{(i)}_{t} \right\}_{i=1}^{I}
+$$
+for some $t$ and the number of particles $I > 1$. The SMC algorithm is designed such that a particle at index $i$ and iteration $t$, $\theta_t^{(i)}$, has distribution with density $\pi_{t}(\b\theta)$. The starting density, $\pi_{1}(\b\theta)$, is chosen so that it can be simulated from easily, whilst the density we are targeting is that of $\pi(\b\theta) = \pi_{T}(\b\theta)$. We proceed through a series of densities (in truth, particles with the current density as their distribution) that are increasingly complex. Each subsequent density is "near" enough to the proceeding one so that evolving the particles from one to the next is feasible. The weights are such that $w^{(i)}_{t} > 0$, and $\sum_{i=1}^{I}w^{(i)}_{t} = 1$ for  $t = 1,2,\ldots,T$.
+
+The exact sequence of distributions to move from $\pi_{1}(\b\theta)$ to $\pi_{T}(\b\theta)$ can be defined in a number of ways. The most popular schedules are 
+
+- *data annealing*, where $\pi_{t}(\b\theta) \propto p(\b\theta~\vert~y_{1},\ldots,y_{t})$, where the target is $\pi(\b\theta) =  p(\b\theta~\vert~y_{1},\ldots,y_{T})$ and $T = N$ the number of data observations; and
+- *geometric annealing*, where $\pi_{t}(\b\theta) \propto \pi(\b\theta)^{\phi_{t}}\mu(\b\theta)^{1-\phi_{t}}$ for $0 = \phi_{1} < \phi_{2} < \cdots < \phi_{T-1} < \phi_{T} = 1$, and $\mu(\b\theta)$ is the starting distribution of the particles.
+- *likelihood annealing* (a special case of geometric for static Bayesian models), where $\pi_{t}(\b\theta~\vert~\b{y}) \propto \pi(\b{y}~\vert~\b\theta)^{\phi_{t}}p(\b\theta)$, the likelihood function is $\pi(\b{y}~\vert~\b\theta)$, and $p(\b\theta)$ is the prior distribution. The annealing parameter $\phi_{t}$ is an in geometric annealing.
+
+Data annealing was first used in @chopin2002sequential for static Bayesian models, whilst geometric annealing has its origins in papers by @gelman1998simulating as well as @neal2001annealed. The components that make up an SMC algorithm, can be roughly divided into three iterated steps:
+
+1. *Reweight* particles for the next distribution in the sequence;
+2. *Resample* particles to duplicate "good" particles and remove "bad" ones;
+3. *Refresh* particles to increase diversity after particles duplicated above.
+
+We will now outline these steps in more detail.
+
+**Reweight**
+
+The reweighting step is based on importance sampling, which can be seen as a more general form of the Monte Carlo integration identity. Specifically, the expectation in \eqref{eq:mc-integral} can be rewritten as
+$$
+E_{\pi}[f(\b\theta)] = \int_{\Theta} f(\b\theta) \pi(\b\theta) \dd \b\theta = \int_{\Theta} f(\b\theta) \frac{\pi(\b\theta)}{\pi_{0}(\b\theta)} \pi_{0}(\b\theta) \dd \b\theta = E_{\pi_{0}}[w(\b\theta)f(\b\theta)]
+$$
+for some density $\pi_{0}(\b\theta)$ with the same support as $\pi(\b\theta)$, where $w(\b\theta) = \frac{\pi(\b\theta)}{\pi_{0}(\b\theta)}$. Then by stochastic approximation, we can write
+\begin{equation}
+E_{\pi}[f(\b\theta)] \approx \sum_{i=1}^{n}w_{i} f\left(\b\theta^{(i)}\right) \quad \text{when} \quad  \b\theta^{(i)} \sim \pi_{0}(\b\theta) \label{eq:weight-mc-integral}
+\end{equation}
+where $w_{i} = \frac{\pi\left( \b\theta^{(i)} \right)}{n\pi_{0}\left( \b\theta^{(i)} \right)}$, for large $n$. The density $\pi_{0}(\b\theta)$ is called the importance distribution. It is from this approximation that importance sampling, and its derivatives are borne.^[Sufficient conditions for workable importance samplers are given in @geweke1989bayesian and relate to the finiteness of the expected value under the importance distribution and supremum of the ratio of target distribution to importance distribution.]
+
+In relation to SMC, importance sampling is performed iteratively, as in sequential or annealed importance sampling [see @neal2001annealed and references therein]. At step $t+1$ the previous particles and weights are $\left\{ \b{\theta}^{(i)}_{t}, w^{(i)}_{t} \right\}_{i=1}^{I}$. These particles are then evaluated against the new targeted density $\pi_{t+1}(\b\theta)$. That is the previous density, $\pi_{t}(\b\theta)$ is the importance distribution for the next density $\pi_{t+1}(\b\theta)$. Due to the sequential nature of the algorithm, the random samples from $\pi_{t}(\b\theta)$ have already been generated. However, each particle will be differently suited to the new density compared to the old one, so the weights must be updated.
+
+In general determining the weights is non-trivial, but an auxiliary parameter approach can be used [@del2006sequential, Sec. 3.1]. There is an important simplification available when the move step is an MCMC kernel with invariant distribution $\pi_{t+1}$ for a static model. Under this condition, the process of updating the unnormalised weights, $W_{t+1}$ can be performed using the formula [@del2006sequential, Sec. 3.3.2.3]
+$$
+W_{t+1}^{(i)} = W_{t}^{(i)} \frac{\gamma_{t+1}\left( \b\theta_{t+1}^{(i)}\right)}{\gamma_{t}\left( \b\theta_{t}^{(i)}\right)}
+$$
+where $\gamma_{t}(\b\theta)$ is the unnormalised target density at time $t$, i.e. $\pi_{t}(\b\theta) = \gamma_{t}(\b\theta)/ Z_{t}$ and $Z_{t}$ is the normalising constant. The weights can then be normalised by
+$$
+w_{t}^{(i)} = \frac{W_{t}^{(i)}}{\sum_{i=1}^{I} W_{t}^{(i)}}.
+$$
+
+```{r comment-1, eval=FALSE, echo = FALSE}
+# Does there need to be an $n$ in the above formula?
+```
+
+**Resample**
+
+The particle weights will degenerate each iteration and eventually most of the weight will be concentrated over a small set of particles. This is the main draw back of standard importance sampling or sequential importance sampling without resampling and refreshment. Degenerate weights cause two problems for SMC and other importance sampling algorithms:
+
+1. It is inefficient to use computational resources to store and manipulate particles with a small weights. In particular, particles with small weights contribute very little to the Monte Carlo integration.
+2. Large discrepancies in weight increases the variance of the estimate of the integral. Or in other words, the estimate is less accurate on average.
+
+Resampling addresses the first issue by taking a random sample of the particles with probability proportional to the current weight. This preserves the expectation, removes weights with low values, and duplicates those with high values. There are three main strategies for resampling:
+
+1. *Multinomial resampling*: Sample $I$ particles from the current particles with replacement, with the probability of selecting a given particle proportional to its current weight. After which each particle has unit weight.
+2. *Stratified resampling*: Partition the particles into $m$ sets by weight, such that each block (of the partition) has the same total weight, and then sample $I/m$ particles from each block^[Assuming $I/m$ is an integer.]  [@kitagawa1996monte]. After which each particle has unit weight.
+3. *Residual resampling*: Randomly round the current weights to integer values, such that the mean is preserved [see for example, @liu1998sequential]. Duplicate particles based on their integer weight, after which each new particle has unit weight.
+
+Systematic resampling is also popular and can be viewed as a simplified version of stratified sampling. Other variations are also possible but they often lack an intuitive description, unlike the three examples given above. Generally, resampling strategies are functions of empirical inverse tail probabilities [@gerber2017negative] which is a standard basis for describing, comparing, and efficiently implementing them. 
+
+It is well known that stratified and residual resampling outperform multinomial by reducing the variance of the particles. For general SMC algorithms, stratified sampling is recommended as it is more efficient and has stronger proven theoretical guarantees of convergence than its peers [@gerber2017negative]. Other specialised resampling techniques also exist for certain situations, for example when resampling particles in a distributed computer setting [@lee2016forest; @murray2016parallel].
+
+Whilst resampling addresses the first issue, the second issue requires a combination of resampling and refreshment to be effectively dealt with. We detail how particles are refreshed below.
+
+**Refresh** 
+
+After resampling, there are $I$ particles with unit weight. However, many of them may be duplicated. Refreshment^[Refreshment is also known as mutation, move step, or jittering among other names.] increases the diversity of the particles by allowing them to traverse the parameter space. Using a combination of resampling and refreshment addresses the second issue mentioned above: Particles with relatively large weights are duplicated then diversified so that degeneracy in the particles can be avoided and the variance of the integral estimator can be decreased.
+
+We focus on the situation where an MCMC kernel is used for refreshment because this is the most common practise for static Bayesian models. The resampled particles will be $\left\{ \b{\theta}^{(i)}_{t+1} \right\}_{i=1}^{I}$ with unit weights. An MCMC kernel, or transition probability density (or mass) function with the Markovian property, $k(\b{\theta}~\vert~\b{\theta}_{t+1})$, can be used if the stationary (or invariant) distribution of the Markov chain defined by $k$ is $\pi_{t+1}$ where $t+1$ is the current time. We update each particle by sampling from this kernel with $\b{\theta}_{t+1}$ equal to the current position. This step can be iterated multiple times, and the last value is taken as the current position of each particle. The global current time is not incremented as the particle in the chain still has a $\pi_{t+1}$ law, due to the MCMC kernel's invariance. Note that the weights need to be updated after mutation, but this can generally be left until the next iteration of the algorithm.
+
+Whilst we have described mutation as the last step, this does not diminish its importance from an algorithmic and historical perspective. In fact the origins of SMC for static models are just as much based on resample-move algorithms [@chopin2002sequential for example], as they are in annealed importance sampling [@neal2001annealed].
+
+# Improvise. Adapt. Overcome.
+
+Several enhancements are used in modern SMC algorithms to dramatically increase their efficiency, and are outlined in the subsections below. These improvements result from dynamic SMC algorithms which adapt using the current population of particles. Whilst they can improve efficiency, adaptive SMC algorithms are not covered by the theoretical convergence guarantees developed for their non-adaptive counterparts. The theory for some special cases of adaptivity has been developed by @del2012adaptive and @beskos2016convergence. When this theory is not available the issue can be circumvented using a pilot run of the entire SMC algorithm. The adapted parameters from the pilot run are fixed for a second, non-adaptive version of SMC, which will be covered by the general convergence results for SMC in static models [see for example, @del2006sequential].
 
 
