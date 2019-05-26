@@ -68,7 +68,7 @@ The exact sequence of distributions to move from $\pi_{1}(\b\theta)$ to $\pi_{T}
 
 - *data annealing*, where $\pi_{t}(\b\theta) \propto p(\b\theta~\vert~y_{1},\ldots,y_{t})$, where the target is $\pi(\b\theta) =  p(\b\theta~\vert~y_{1},\ldots,y_{T})$ and $T = N$ the number of data observations; and
 - *geometric annealing*, where $\pi_{t}(\b\theta) \propto \pi(\b\theta)^{\phi_{t}}\mu(\b\theta)^{1-\phi_{t}}$ for $0 = \phi_{1} < \phi_{2} < \cdots < \phi_{T-1} < \phi_{T} = 1$, and $\mu(\b\theta)$ is the starting distribution of the particles.
-- *likelihood annealing* (a special case of geometric for static Bayesian models), where $\pi_{t}(\b\theta~\vert~\b{y}) \propto \pi(\b{y}~\vert~\b\theta)^{\phi_{t}}p(\b\theta)$, the likelihood function is $\pi(\b{y}~\vert~\b\theta)$, and $p(\b\theta)$ is the prior distribution. The annealing parameter $\phi_{t}$ is an in geometric annealing.
+- *likelihood annealing* (a special case of geometric for static Bayesian models), where $\pi_{t}(\b\theta~\vert~\b{y}) \propto \pi(\b{y}~\vert~\b\theta)^{\phi_{t}}p(\b\theta)$, the likelihood function is $\pi(\b{y}~\vert~\b\theta)$, and $p(\b\theta)$ is the prior distribution. The annealing parameter $\phi_{t}$ is as above.
 
 Data annealing was first used in @chopin2002sequential for static Bayesian models, whilst geometric annealing has its origins in papers by @gelman1998simulating as well as @neal2001annealed. The components that make up an SMC algorithm, can be roughly divided into three iterated steps:
 
